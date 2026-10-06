@@ -8,6 +8,7 @@ import (
 	"github.com/datarhei/core/v16/http/api"
 	"github.com/datarhei/core/v16/http/handler/util"
 	"github.com/datarhei/core/v16/http/jwt/jwks"
+	"github.com/datarhei/core/v16/internal/secret"
 
 	jwtgo "github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
@@ -49,7 +50,10 @@ func (v *localValidator) Validate(c echo.Context) (bool, string, error) {
 		return false, "", nil
 	}
 
-	if login.Username != v.username || login.Password != v.password {
+	usernameOK := secret.Equal(login.Username, v.username)
+	passwordOK := secret.Equal(login.Password, v.password)
+
+	if !usernameOK || !passwordOK {
 		return true, "", fmt.Errorf("invalid username or password")
 	}
 

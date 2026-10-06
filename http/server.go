@@ -43,6 +43,7 @@ import (
 	"github.com/datarhei/core/v16/http/jwt"
 	"github.com/datarhei/core/v16/http/router"
 	"github.com/datarhei/core/v16/http/validator"
+	"github.com/datarhei/core/v16/internal/secret"
 	"github.com/datarhei/core/v16/log"
 	"github.com/datarhei/core/v16/monitor"
 	"github.com/datarhei/core/v16/net"
@@ -483,7 +484,10 @@ func (s *server) setRoutes() {
 		if filesystem.AllowWrite {
 			if filesystem.EnableAuth {
 				authmw := middleware.BasicAuth(func(username, password string, c echo.Context) (bool, error) {
-					if username == filesystem.Username && password == filesystem.Password {
+					usernameOK := secret.Equal(username, filesystem.Username)
+					passwordOK := secret.Equal(password, filesystem.Password)
+
+					if usernameOK && passwordOK {
 						return true, nil
 					}
 

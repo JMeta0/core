@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/datarhei/core/v16/internal/secret"
 	"github.com/datarhei/core/v16/log"
 	"github.com/datarhei/core/v16/session"
 
@@ -380,7 +381,7 @@ func (s *server) handlePlay(conn *rtmp.Conn) {
 			return
 		}
 
-		if s.token != token {
+		if !secret.Equal(s.token, token) {
 			s.log(log.Lwarn, "PLAY", "FORBIDDEN", path, "invalid streamkey ("+token+")", client)
 			return
 		}
@@ -470,7 +471,7 @@ func (s *server) handlePublish(conn *rtmp.Conn) {
 			return
 		}
 
-		if s.token != token {
+		if !secret.Equal(s.token, token) {
 			s.log(log.Lwarn, "PUBLISH", "FORBIDDEN", path, "invalid streamkey ("+token+")", client)
 			return
 		}

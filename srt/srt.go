@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/datarhei/core/v16/internal/secret"
 	"github.com/datarhei/core/v16/log"
 	"github.com/datarhei/core/v16/session"
 	srt "github.com/datarhei/gosrt"
@@ -518,7 +519,7 @@ func (s *server) handleConnect(req srt.ConnRequest) srt.ConnType {
 	}
 
 	// Check the token
-	if len(s.token) != 0 && s.token != si.token {
+	if len(s.token) != 0 && !secret.Equal(s.token, si.token) {
 		if len(si.token) == 0 {
 			s.log("CONNECT", "FORBIDDEN", si.resource, "token required", client)
 		} else {
