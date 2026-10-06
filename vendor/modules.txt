@@ -62,7 +62,7 @@ github.com/datarhei/gosrt/crypto
 github.com/datarhei/gosrt/net
 github.com/datarhei/gosrt/packet
 github.com/datarhei/gosrt/rand
-# github.com/datarhei/joy4 v0.0.0-20260529103716-aae50349bd84
+# github.com/datarhei/joy4 v0.0.0-20260529103716-aae50349bd84 => github.com/JMeta0/joy4 v0.0.0-20261006122221-7e64ed49b63f
 ## explicit; go 1.14
 github.com/datarhei/joy4/av
 github.com/datarhei/joy4/av/avutil
@@ -554,3 +554,4 @@ gopkg.in/yaml.v3
 # sigs.k8s.io/yaml v1.6.0
 ## explicit; go 1.22
 sigs.k8s.io/yaml
+# github.com/datarhei/joy4 => github.com/JMeta0/joy4 v0.0.0-20261006122221-7e64ed49b63f

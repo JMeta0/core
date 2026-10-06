@@ -264,6 +264,7 @@ func New(config Config) (Server, error) {
 		HandlePlay:            s.handlePlay,
 		HandlePublish:         s.handlePublish,
 		ConnectionIdleTimeout: config.ConnectionIdleTimeout,
+		MaxProbePacketCount:   64,
 	}
 
 	if len(config.TLSAddr) != 0 {
@@ -273,6 +274,7 @@ func New(config Config) (Server, error) {
 			HandlePlay:            s.handlePlay,
 			HandlePublish:         s.handlePublish,
 			ConnectionIdleTimeout: config.ConnectionIdleTimeout,
+			MaxProbePacketCount:   64,
 		}
 	}
 
@@ -483,7 +485,12 @@ func (s *server) handlePublish(conn *rtmp.Conn) {
 	}
 
 	// Check the stream if it contains any valid/known streams
-	streams, _ := conn.Streams()
+	streams, err := conn.Streams()
+
+	if err != nil {
+		s.log(log.Lwarn, "PUBLISH", "INVALID", playPath, "stream probe failed: "+err.Error(), client)
+		return
+	}
 
 	if len(streams) == 0 {
 		s.log(log.Lwarn, "PUBLISH", "INVALID", playPath, "no streams available", client)
@@ -527,12 +534,22 @@ func (s *server) handlePublish(conn *rtmp.Conn) {
 
 	s.log(log.Linfo, "PUBLISH", "START", playPath, "", client)
 
+	audioTracks := 0
+
 	for _, stream := range streams {
+		if stream.Type().IsAudio() {
+			audioTracks++
+		}
+
 		s.log(log.Linfo, "PUBLISH", "STREAM", playPath, stream.Type().String(), client)
 	}
 
+	if audioTracks > 1 {
+		s.log(log.Linfo, "PUBLISH", "STREAM", playPath, fmt.Sprintf("%d audio tracks", audioTracks), client)
+	}
+
 	// Ingest the data
-	err := avutil.CopyPackets(ch.queue, conn)
+	err = avutil.CopyPackets(ch.queue, conn)
 	if err != nil {
 		if !errors.Is(err, io.EOF) {
 			s.log(log.Lerror, "PUBLISH", "ERROR", playPath, err.Error(), client)

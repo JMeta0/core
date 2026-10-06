@@ -114,3 +114,5 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
+
+replace github.com/datarhei/joy4 => github.com/JMeta0/joy4 v0.0.0-20261006122221-7e64ed49b63f
