@@ -10,6 +10,7 @@ import (
 	"github.com/datarhei/core/v16/config"
 	"github.com/datarhei/core/v16/config/store"
 	v1 "github.com/datarhei/core/v16/config/v1"
+	"github.com/datarhei/core/v16/config/value"
 	"github.com/datarhei/core/v16/http/mock"
 	"github.com/datarhei/core/v16/io/fs"
 	"github.com/labstack/echo/v4"
@@ -45,6 +46,75 @@ func TestConfigGet(t *testing.T) {
 	mock.Request(t, http.StatusOK, router, "GET", "/", nil)
 
 	//validate(t, &api.RestreamerConfig{}, response.Data)
+}
+
+func TestConfigRedactsSecrets(t *testing.T) {
+	router, store := getDummyConfigRouter(t)
+
+	storedSecret := store.Get().API.Auth.JWT.Secret
+	require.NotEmpty(t, storedSecret)
+
+	// The signing secret must not be exposed
+	res := mock.Request(t, http.StatusOK, router, "GET", "/", nil)
+
+	data, ok := res.Data.(map[string]any)
+	require.True(t, ok)
+
+	cfg, ok := data["config"].(map[string]any)
+	require.True(t, ok)
+
+	apicfg, ok := cfg["api"].(map[string]any)
+	require.True(t, ok)
+
+	auth, ok := apicfg["auth"].(map[string]any)
+	require.True(t, ok)
+
+	jwt, ok := auth["jwt"].(map[string]any)
+	require.True(t, ok)
+
+	require.Equal(t, redactedSecret, jwt["secret"])
+
+	// Note: the restore-on-save wiring is exercised by TestMaskRestoreSecrets,
+	// because a full config PUT requires a valid ffmpeg binary in this test
+	// environment.
+}
+
+func TestMaskRestoreSecrets(t *testing.T) {
+	original := config.New(nil)
+	original.API.Auth.JWT.Secret = "jwt-secret"
+	original.Service.Token = "service-token"
+	original.Storage.S3 = []value.S3Storage{
+		{
+			Name:            "s3a",
+			SecretAccessKey: "access-key",
+			Auth:            value.S3StorageAuth{Password: "s3-password"},
+		},
+	}
+
+	masked := original.Clone()
+	maskSecrets(&masked.Data)
+
+	require.Equal(t, redactedSecret, masked.API.Auth.JWT.Secret)
+	require.Equal(t, redactedSecret, masked.Service.Token)
+	require.Equal(t, redactedSecret, masked.Storage.S3[0].SecretAccessKey)
+	require.Equal(t, redactedSecret, masked.Storage.S3[0].Auth.Password)
+
+	// Masking must not modify the original config
+	require.Equal(t, "jwt-secret", original.API.Auth.JWT.Secret)
+
+	// Round-tripping the masked config restores the stored values
+	restoreSecrets(&masked.Data, &original.Data)
+
+	require.Equal(t, "jwt-secret", masked.API.Auth.JWT.Secret)
+	require.Equal(t, "service-token", masked.Service.Token)
+	require.Equal(t, "access-key", masked.Storage.S3[0].SecretAccessKey)
+	require.Equal(t, "s3-password", masked.Storage.S3[0].Auth.Password)
+
+	// Changed values are not overwritten
+	changed := original.Clone()
+	changed.API.Auth.JWT.Secret = "new-jwt-secret"
+	restoreSecrets(&changed.Data, &original.Data)
+	require.Equal(t, "new-jwt-secret", changed.API.Auth.JWT.Secret)
 }
 
 func TestConfigSetConflict(t *testing.T) {

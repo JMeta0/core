@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/datarhei/core/v16/config"
 	cfgstore "github.com/datarhei/core/v16/config/store"
 	cfgvars "github.com/datarhei/core/v16/config/vars"
 	"github.com/datarhei/core/v16/encoding/json"
@@ -26,6 +27,55 @@ func NewConfig(store cfgstore.Store) *ConfigHandler {
 	}
 }
 
+// redactedSecret is the placeholder that is returned instead of a secret value.
+// If a client sends this value back unchanged, the currently stored value is
+// kept instead of being overwritten.
+const redactedSecret = "***"
+
+// maskSecrets replaces secret values with the redaction placeholder so that
+// credentials are not leaked through the config API. Only values that are not
+// required by the web UI to derive other configs (see restoreSecrets) are
+// redacted here.
+func maskSecrets(d *config.Data) {
+	d.API.Auth.JWT.Secret = redactedSecret
+	d.Service.Token = redactedSecret
+
+	for i := range d.Storage.S3 {
+		d.Storage.S3[i].SecretAccessKey = redactedSecret
+		d.Storage.S3[i].Auth.Password = redactedSecret
+	}
+}
+
+// restoreSecrets restores redacted secret values from the original (stored)
+// config. Values that were changed by the client (i.e. that differ from the
+// placeholder) are left untouched. This keeps clients that round-trip a
+// redacted config (like the web UI) from accidentally clearing secrets.
+func restoreSecrets(d, original *config.Data) {
+	if d.API.Auth.JWT.Secret == redactedSecret {
+		d.API.Auth.JWT.Secret = original.API.Auth.JWT.Secret
+	}
+
+	if d.Service.Token == redactedSecret {
+		d.Service.Token = original.Service.Token
+	}
+
+	for i := range d.Storage.S3 {
+		for j := range original.Storage.S3 {
+			if d.Storage.S3[i].Name != original.Storage.S3[j].Name {
+				continue
+			}
+
+			if d.Storage.S3[i].SecretAccessKey == redactedSecret {
+				d.Storage.S3[i].SecretAccessKey = original.Storage.S3[j].SecretAccessKey
+			}
+
+			if d.Storage.S3[i].Auth.Password == redactedSecret {
+				d.Storage.S3[i].Auth.Password = original.Storage.S3[j].Auth.Password
+			}
+		}
+	}
+}
+
 // Get returns the currently active Restreamer configuration
 // @Summary Retrieve the currently active Restreamer configuration
 // @Description Retrieve the currently active Restreamer configuration
@@ -40,6 +90,8 @@ func (p *ConfigHandler) Get(c echo.Context) error {
 
 	apicfg := api.Config{}
 	apicfg.Unmarshal(cfg)
+
+	maskSecrets(&apicfg.Config.Data)
 
 	return c.JSON(http.StatusOK, apicfg)
 }
@@ -73,6 +125,10 @@ func (p *ConfigHandler) Set(c echo.Context) error {
 
 	cfg := p.store.Get()
 	cfgActive := p.store.GetActive()
+
+	// Keep the stored secrets around so that redacted values coming back from
+	// a client can be restored instead of overwriting them.
+	original := cfg.Clone()
 
 	// Copy the timestamp of when this config has been used
 	cfg.LoadedAt = cfgActive.LoadedAt
@@ -123,6 +179,9 @@ func (p *ConfigHandler) Set(c echo.Context) error {
 	} else {
 		return api.Err(http.StatusBadRequest, "Invalid config version", "version %d", version.Version)
 	}
+
+	// Restore any secrets that a client sent back redacted (see maskSecrets).
+	restoreSecrets(&cfg.Data, &original.Data)
 
 	cfg.CreatedAt = time.Now()
 	cfg.UpdatedAt = cfg.CreatedAt
