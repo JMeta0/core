@@ -53,6 +53,7 @@ type jwt struct {
 	refreshValidFor   time.Duration
 	refreshConfig     echojwt.Config
 	refreshMiddleware echo.MiddlewareFunc
+	loginLimiter      *attemptLimiter
 	// Validators is a map of all recognized issuers to their specific validators. The key is the value of
 	// the "iss" field in the claims. Somewhat required because otherwise the token cannot be verified.
 	validators map[string]Validator
@@ -67,6 +68,7 @@ func New(config Config) (JWT, error) {
 		secret:          []byte(config.Secret),
 		accessValidFor:  time.Minute * 10,
 		refreshValidFor: time.Hour * 24,
+		loginLimiter:    newAttemptLimiter(10, time.Minute),
 	}
 
 	if len(j.secret) == 0 {
@@ -112,13 +114,22 @@ func New(config Config) (JWT, error) {
 }
 
 func (j *jwt) parseToken(use string) func(c echo.Context, auth string) (any, error) {
-	keyFunc := func(*jwtgo.Token) (any, error) { return j.secret, nil }
+	keyFunc := func(t *jwtgo.Token) (any, error) {
+		// Only allow HMAC tokens. This, together with WithValidMethods below,
+		// prevents algorithm confusion attacks in case a different (public)
+		// key is ever used.
+		if _, ok := t.Method.(*jwtgo.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+		}
+
+		return j.secret, nil
+	}
 
 	return func(c echo.Context, auth string) (any, error) {
 		var token *jwtgo.Token
 		var err error
 
-		token, err = jwtgo.Parse(auth, keyFunc)
+		token, err = jwtgo.Parse(auth, keyFunc, jwtgo.WithValidMethods([]string{"HS256"}))
 		if err != nil {
 			return nil, err
 		}
@@ -233,6 +244,13 @@ func (j *jwt) LoginHandler(c echo.Context) error {
 	var subject string
 	var err error
 
+	// Throttle login attempts per client IP in order to slow down brute force
+	// attacks. The client IP is derived from the actual TCP peer (see the
+	// IPExtractor configuration), so it cannot be spoofed via headers.
+	if !j.loginLimiter.allow(c.RealIP()) {
+		return api.Err(http.StatusTooManyRequests, "", "Too many login attempts, try again later")
+	}
+
 	j.lock.RLock()
 	for _, validator := range j.validators {
 		ok, subject, err = validator.Validate(c)
@@ -244,11 +262,9 @@ func (j *jwt) LoginHandler(c echo.Context) error {
 
 	if ok {
 		if err != nil {
-			time.Sleep(5 * time.Second)
 			return api.Err(http.StatusUnauthorized, "", "Invalid authorization credentials: %s", err.Error())
 		}
 	} else {
-		time.Sleep(5 * time.Second)
 		return api.Err(http.StatusBadRequest, "", "Missing authorization credentials")
 	}
 
