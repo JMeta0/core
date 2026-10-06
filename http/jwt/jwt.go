@@ -3,6 +3,7 @@ package jwt
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -74,7 +75,12 @@ func New(config Config) (JWT, error) {
 
 	skipperFunc := func(c echo.Context) bool {
 		if j.skipLocalhost {
-			ip := c.RealIP()
+			// Use the actual TCP peer address. Never trust header-derived
+			// values (X-Forwarded-For/X-Real-IP) for a localhost auth bypass.
+			ip, _, err := net.SplitHostPort(c.Request().RemoteAddr)
+			if err != nil {
+				ip = c.Request().RemoteAddr
+			}
 
 			if ip == "127.0.0.1" || ip == "::1" {
 				return true

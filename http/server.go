@@ -331,6 +331,13 @@ func NewServer(config Config) (Server, error) {
 	}
 
 	s.router = echo.New()
+	// Only ever derive the client IP from the actual TCP peer. Echo's default
+	// (legacy) behavior trusts the X-Forwarded-For and X-Real-IP request
+	// headers, which are attacker controlled. That would allow spoofing the
+	// client IP for auth decisions (e.g. api.auth.disable_localhost) and the
+	// IP allow/block lists. If you run Core behind a trusted reverse proxy,
+	// configure a trusted-proxy-aware extractor here explicitly.
+	s.router.IPExtractor = echo.ExtractIPDirect()
 	s.router.HTTPErrorHandler = errorhandler.HTTPErrorHandler
 	s.router.Validator = validator.New()
 	s.router.Use(s.middleware.log)
