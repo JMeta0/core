@@ -148,14 +148,25 @@ func (v *auth0Validator) Validate(c echo.Context) (bool, string, error) {
 }
 
 func (v *auth0Validator) keyFunc(token *jwtgo.Token) (any, error) {
-	// Verify 'aud' claim
-	if _, err := token.Claims.GetAudience(); err != nil {
+	// Verify 'aud' claim against the configured audience. GetAudience only
+	// parses the claim, so the value has to be checked explicitly.
+	aud, err := token.Claims.GetAudience()
+	if err != nil {
 		return nil, fmt.Errorf("invalid audience: %w", err)
 	}
 
-	// Verify 'iss' claim
-	if _, err := token.Claims.GetIssuer(); err != nil {
+	if !slices.Contains([]string(aud), v.audience) {
+		return nil, fmt.Errorf("invalid audience")
+	}
+
+	// Verify 'iss' claim against the configured issuer
+	iss, err := token.Claims.GetIssuer()
+	if err != nil {
 		return nil, fmt.Errorf("invalid issuer: %w", err)
+	}
+
+	if iss != v.issuer {
+		return nil, fmt.Errorf("invalid issuer")
 	}
 
 	// Verify 'sub' claim
@@ -168,6 +179,20 @@ func (v *auth0Validator) keyFunc(token *jwtgo.Token) (any, error) {
 
 	if !found {
 		return nil, fmt.Errorf("user not allowed")
+	}
+
+	// If the token carries an authorized party / client id, verify it against
+	// the configured client id.
+	if len(v.clientID) != 0 {
+		if claims, ok := token.Claims.(jwtgo.MapClaims); ok {
+			if azp, ok := claims["azp"].(string); ok && azp != v.clientID {
+				return nil, fmt.Errorf("invalid authorized party")
+			}
+
+			if cid, ok := claims["client_id"].(string); ok && cid != v.clientID {
+				return nil, fmt.Errorf("invalid client id")
+			}
+		}
 	}
 
 	// find the key
